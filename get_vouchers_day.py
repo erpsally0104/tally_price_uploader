@@ -1,21 +1,21 @@
-"""Fetch vouchers from Tally for a given month and voucher type.
+"""Fetch vouchers from Tally for a single day.
 
 Usage:
-    python get_vouchers.py --month 4 --year 2026 --type Sales
-    python get_vouchers.py --month 4 --year 2026 --type Purchase
-    python get_vouchers.py --month 4 --year 2026              (all types)
+    python get_vouchers_day.py --date 2026-04-01 --type Sales
+    python get_vouchers_day.py --date 2026-04-15 --type Purchase
+    python get_vouchers_day.py --date 2026-04-01              (all types)
 
 Common voucher types in Tally:
     Sales, Purchase, Receipt, Payment, Journal, Contra,
     Credit Note, Debit Note, Sales Order, Purchase Order
 """
 import argparse
-import calendar
 import sys
 import requests
 import re
 import xml.etree.ElementTree as ET
 import pandas as pd
+from datetime import datetime
 
 TALLY_URL = "http://localhost:9000"
 
@@ -51,17 +51,15 @@ def clean_xml(text):
     )
 
 
-def fetch_vouchers(month, year, voucher_type=""):
-    """Fetch vouchers from Tally for the given month/year and optional type."""
+def fetch_vouchers_day(date_str, voucher_type=""):
+    """Fetch vouchers from Tally for a single day and optional type."""
     company = get_company_name()
 
-    _, last_day = calendar.monthrange(year, month)
-    from_date = f"{year}{month:02d}01"
-    to_date = f"{year}{month:02d}{last_day:02d}"
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    tally_date = dt.strftime("%Y%m%d")
 
     type_label = voucher_type if voucher_type else "All"
-    print(f"Fetching {type_label} vouchers for {calendar.month_name[month]} {year}...")
-    print(f"  Date range: {from_date} to {to_date}")
+    print(f"Fetching {type_label} vouchers for {dt.strftime('%d-%b-%Y')}...")
 
     # Build filter if voucher type specified
     filter_block = ""
@@ -77,8 +75,8 @@ def fetch_vouchers(month, year, voucher_type=""):
 <BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
-<SVFROMDATE>{from_date}</SVFROMDATE>
-<SVTODATE>{to_date}</SVTODATE>
+<SVFROMDATE>{tally_date}</SVFROMDATE>
+<SVTODATE>{tally_date}</SVTODATE>
 </STATICVARIABLES>
 <TDL><TDLMESSAGE>
 <COLLECTION NAME="VoucherList" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
@@ -93,7 +91,7 @@ def fetch_vouchers(month, year, voucher_type=""):
 </TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'''
 
     r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
-                      headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=300)
+                      headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=120)
     clean_text = clean_xml(r.text)
     root = ET.fromstring(clean_text)
 
@@ -119,24 +117,25 @@ def fetch_vouchers(month, year, voucher_type=""):
                 })
 
     print(f"Found {len(vouchers)} vouchers")
-    return vouchers
+    return vouchers, dt
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch vouchers from Tally")
-    parser.add_argument("--month", type=int, required=True, help="Month number (1-12)")
-    parser.add_argument("--year", type=int, required=True, help="Year (e.g. 2026)")
+    parser = argparse.ArgumentParser(description="Fetch vouchers from Tally for a single day")
+    parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD format (e.g. 2026-04-01)")
     parser.add_argument("--type", type=str, default="",
                         help="Voucher type: Sales, Purchase, Receipt, Payment, Journal, etc. Leave empty for all.")
     args = parser.parse_args()
 
-    if not 1 <= args.month <= 12:
-        print("Error: Month must be between 1 and 12.")
+    try:
+        datetime.strptime(args.date, "%Y-%m-%d")
+    except ValueError:
+        print("Error: Date must be in YYYY-MM-DD format (e.g. 2026-04-01)")
         sys.exit(1)
 
-    vouchers = fetch_vouchers(args.month, args.year, args.type)
+    vouchers, dt = fetch_vouchers_day(args.date, args.type)
     if not vouchers:
-        print("No vouchers found for the given criteria.")
+        print("No vouchers found for the given date.")
         input("\nPress Enter to exit...")
         return
 
@@ -145,7 +144,7 @@ def main():
     df.index.name = 'S.No'
 
     type_suffix = f"_{args.type}" if args.type else "_All"
-    output_file = f"tally_vouchers_{args.year}_{args.month:02d}{type_suffix}.xlsx"
+    output_file = f"tally_vouchers_{dt.strftime('%Y%m%d')}{type_suffix}.xlsx"
     df.to_excel(output_file)
     print(f"Saved to {output_file}")
 
