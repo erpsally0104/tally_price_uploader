@@ -51,8 +51,15 @@ def clean_xml(text):
     )
 
 
+def save_raw(text, filename='raw_voucher_response.txt'):
+    """Save raw response for debugging."""
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(text[:10000])
+    print(f"Saved raw response preview to {filename}")
+
+
 def fetch_vouchers_day(date_str, voucher_type=""):
-    """Fetch vouchers from Tally for a single day using Day Book report export."""
+    """Fetch vouchers from Tally for a single day."""
     company = get_company_name()
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -61,89 +68,30 @@ def fetch_vouchers_day(date_str, voucher_type=""):
     type_label = voucher_type if voucher_type else "All"
     print(f"Fetching {type_label} vouchers for {dt.strftime('%d-%b-%Y')}...")
 
-    # Method 1: Use Tally's built-in Day Book report export (much faster)
-    vch_type_filter = ""
+    # Use Object export for each voucher type - this is the reliable method
+    # First get the list of voucher types if not specified
     if voucher_type:
-        vch_type_filter = f"<VOUCHERTYPENAME>{voucher_type}</VOUCHERTYPENAME>"
-
-    xml_request = f'''<ENVELOPE>
-<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
-<BODY><DESC><STATICVARIABLES>
-<SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
-<SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
-<SVFROMDATE>{tally_date}</SVFROMDATE>
-<SVTODATE>{tally_date}</SVTODATE>
-{vch_type_filter}
-</STATICVARIABLES></DESC></BODY></ENVELOPE>'''
-
-    print("Sending request to Tally (Day Book export)...")
-    try:
-        r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
-                          headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=120)
-    except requests.exceptions.ReadTimeout:
-        print("Day Book export timed out. Trying alternate method...")
-        return try_alternate_method(company, tally_date, voucher_type), dt
-
-    clean_text = clean_xml(r.text)
-
-    # Save raw response for debugging if needed
-    with open('raw_voucher_response.txt', 'w', encoding='utf-8') as f:
-        f.write(clean_text[:5000])
-    print("Saved first 5000 chars of response to raw_voucher_response.txt")
-
-    root = ET.fromstring(clean_text)
-
-    vouchers = []
-    # Day Book export returns VOUCHER elements directly under TALLYMESSAGE
-    for v in root.iter('VOUCHER'):
-        vch_number = v.get('VCHKEY', '') or v.findtext('VOUCHERNUMBER', '')
-        date = v.findtext('DATE', '')
-        vch_type = v.findtext('VOUCHERTYPENAME', '')
-        party = v.findtext('PARTYLEDGERNAME', '')
-        narration = v.findtext('NARRATION', '')
-
-        # Get amount from LEDGER entries
-        amount = ''
-        for ledger_entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
-            amt = ledger_entry.findtext('AMOUNT', '')
-            if amt:
-                amount = amt
-                break
-        if not amount:
-            for ledger_entry in v.findall('.//LEDGERENTRIES.LIST'):
-                amt = ledger_entry.findtext('AMOUNT', '')
-                if amt:
-                    amount = amt
-                    break
-
-        if date or party or vch_number:
-            vouchers.append({
-                'VoucherNumber': (vch_number or '').strip(),
-                'Date': (date or '').strip(),
-                'VoucherType': (vch_type or '').strip(),
-                'PartyName': (party or '').strip(),
-                'Amount': (amount or '').strip(),
-                'Narration': (narration or '').strip(),
-            })
-
-    print(f"Found {len(vouchers)} vouchers")
-    return vouchers, dt
-
-
-def try_alternate_method(company, tally_date, voucher_type=""):
-    """Alternate: fetch just voucher count/list with minimal fields."""
-    print("Trying minimal TDL collection (Name + Date only)...")
-
-    filter_block = ""
-    if voucher_type:
-        filter_block = f"""<FILTERS>VchTypeFilter</FILTERS>
-</COLLECTION>
-<SYSTEM TYPE="Formulae" NAME="VchTypeFilter">$VoucherTypeName = "{voucher_type}"</SYSTEM>"""
+        vch_types = [voucher_type]
     else:
-        filter_block = "</COLLECTION>"
+        vch_types = ['Sales', 'Purchase', 'Receipt', 'Payment', 'Journal',
+                     'Contra', 'Credit Note', 'Debit Note']
 
+    all_vouchers = []
+    for vtype in vch_types:
+        print(f"  Trying {vtype}...")
+        vouchers = fetch_by_type(company, tally_date, vtype)
+        if vouchers:
+            print(f"    Found {len(vouchers)} {vtype} vouchers")
+            all_vouchers.extend(vouchers)
+
+    print(f"\nTotal: {len(all_vouchers)} vouchers")
+    return all_vouchers, dt
+
+
+def fetch_by_type(company, tally_date, voucher_type):
+    """Fetch vouchers of a specific type for a single day using XMLREQUEST format."""
     xml_request = f'''<ENVELOPE>
-<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>VoucherList</ID></HEADER>
+<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>CustomVch</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
@@ -151,18 +99,77 @@ def try_alternate_method(company, tally_date, voucher_type=""):
 <SVTODATE>{tally_date}</SVTODATE>
 </STATICVARIABLES>
 <TDL><TDLMESSAGE>
-<COLLECTION NAME="VoucherList" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
-<TYPE>Voucher</TYPE>
+<COLLECTION NAME="CustomVch" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
+<TYPE>Voucher : VoucherType</TYPE>
+<CHILDOF>{voucher_type}</CHILDOF>
 <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
 <NATIVEMETHOD>Date</NATIVEMETHOD>
-<NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
 <NATIVEMETHOD>PartyLedgerName</NATIVEMETHOD>
-{filter_block}
+<NATIVEMETHOD>Amount</NATIVEMETHOD>
+</COLLECTION>
 </TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'''
 
     try:
         r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
-                          headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=300)
+                          headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=60)
+        clean_text = clean_xml(r.text)
+        save_raw(clean_text)
+        root = ET.fromstring(clean_text)
+
+        vouchers = []
+        coll = root.find('.//COLLECTION')
+        if coll is not None:
+            for v in coll.findall('VOUCHER'):
+                vch_number = v.findtext('VOUCHERNUMBER', '')
+                date = v.findtext('DATE', '')
+                party = v.findtext('PARTYLEDGERNAME', '')
+                amount = v.findtext('AMOUNT', '')
+
+                if date or party or vch_number:
+                    vouchers.append({
+                        'VoucherNumber': (vch_number or '').strip(),
+                        'Date': (date or '').strip(),
+                        'VoucherType': voucher_type,
+                        'PartyName': (party or '').strip(),
+                        'Amount': (amount or '').strip(),
+                    })
+        return vouchers
+    except ET.ParseError:
+        print(f"    XML parse error for {voucher_type}, trying alternate query...")
+        return fetch_by_type_alt(company, tally_date, voucher_type)
+    except requests.exceptions.ReadTimeout:
+        print(f"    Timeout for {voucher_type}, skipping...")
+        return []
+    except Exception as e:
+        print(f"    Error for {voucher_type}: {e}")
+        return []
+
+
+def fetch_by_type_alt(company, tally_date, voucher_type):
+    """Alternate method using filter instead of CHILDOF."""
+    xml_request = f'''<ENVELOPE>
+<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>CustomVch2</ID></HEADER>
+<BODY><DESC><STATICVARIABLES>
+<SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
+<SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
+<SVFROMDATE>{tally_date}</SVFROMDATE>
+<SVTODATE>{tally_date}</SVTODATE>
+</STATICVARIABLES>
+<TDL><TDLMESSAGE>
+<COLLECTION NAME="CustomVch2" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
+<TYPE>Voucher</TYPE>
+<NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+<NATIVEMETHOD>Date</NATIVEMETHOD>
+<NATIVEMETHOD>PartyLedgerName</NATIVEMETHOD>
+<NATIVEMETHOD>Amount</NATIVEMETHOD>
+<FILTERS>TypeFilter</FILTERS>
+</COLLECTION>
+<SYSTEM TYPE="Formulae" NAME="TypeFilter">$$VchTypeSales = "{voucher_type}"</SYSTEM>
+</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'''
+
+    try:
+        r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
+                          headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=60)
         clean_text = clean_xml(r.text)
         root = ET.fromstring(clean_text)
 
@@ -172,23 +179,20 @@ def try_alternate_method(company, tally_date, voucher_type=""):
             for v in coll.findall('VOUCHER'):
                 vch_number = v.findtext('VOUCHERNUMBER', '')
                 date = v.findtext('DATE', '')
-                vch_type = v.findtext('VOUCHERTYPENAME', '')
                 party = v.findtext('PARTYLEDGERNAME', '')
+                amount = v.findtext('AMOUNT', '')
 
                 if date or party or vch_number:
                     vouchers.append({
                         'VoucherNumber': (vch_number or '').strip(),
                         'Date': (date or '').strip(),
-                        'VoucherType': (vch_type or '').strip(),
+                        'VoucherType': voucher_type,
                         'PartyName': (party or '').strip(),
-                        'Amount': '',
-                        'Narration': '',
+                        'Amount': (amount or '').strip(),
                     })
-
-        print(f"Found {len(vouchers)} vouchers (minimal fields)")
         return vouchers
     except Exception as e:
-        print(f"Alternate method also failed: {e}")
+        print(f"    Alternate also failed for {voucher_type}: {e}")
         return []
 
 
@@ -205,13 +209,7 @@ def main():
         print("Error: Date must be in YYYY-MM-DD format (e.g. 2026-04-01)")
         sys.exit(1)
 
-    result = fetch_vouchers_day(args.date, args.type)
-    if isinstance(result, tuple):
-        vouchers, dt = result
-    else:
-        vouchers = result
-        dt = datetime.strptime(args.date, "%Y-%m-%d")
-
+    vouchers, dt = fetch_vouchers_day(args.date, args.type)
     if not vouchers:
         print("No vouchers found for the given date.")
         input("\nPress Enter to exit...")
