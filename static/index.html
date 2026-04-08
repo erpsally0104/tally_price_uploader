@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tally Price List Uploader</title>
+<style>
+  :root {
+    --bg: #f8f7f4;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --text2: #666;
+    --text3: #999;
+    --border: #e5e3de;
+    --accent: #2563eb;
+    --accent-bg: #eff6ff;
+    --green: #16a34a;
+    --green-bg: #f0fdf4;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --amber: #d97706;
+    --amber-bg: #fffbeb;
+    --purple: #7c3aed;
+    --purple-bg: #f5f3ff;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  .header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .header h1 span {
+    color: var(--accent);
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .status-badge.connected { background: var(--green-bg); color: var(--green); }
+  .status-badge.disconnected { background: var(--red-bg); color: var(--red); }
+  .status-badge .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .steps {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .step-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text3);
+  }
+
+  .step-pill.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+
+  .step-pill.done {
+    background: var(--green-bg);
+    color: var(--green);
+    border-color: #bbf7d0;
+  }
+
+  .step-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(0,0,0,0.08);
+  }
+
+  .step-pill.active .step-num { background: rgba(255,255,255,0.3); }
+  .step-pill.done .step-num { background: var(--green); color: white; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: var(--shadow);
+  }
+
+  .card + .card { margin-top: 16px; }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-title .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  input[type="text"], input[type="date"], input[type="file"], select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--card);
+    color: var(--text);
+    transition: border-color 0.15s;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: none;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-success {
+    background: var(--green);
+    color: white;
+  }
+  .btn-success:hover { background: #15803d; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-outline:hover { background: var(--bg); }
+
+  .btn-sm {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 12px 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--bg);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #f0eeea;
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafaf8; }
+
+  /* Mapping row */
+  .mapping-row {
+    display: grid;
+    grid-template-columns: 1fr 40px 1fr 80px;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: var(--card);
+    transition: all 0.15s;
+  }
+
+  .mapping-row:hover { border-color: #ccc; }
+
+  .mapping-row.matched { border-left: 3px solid var(--green); }
+  .mapping-row.unmatched { border-left: 3px solid var(--amber); }
+
+  .excel-item {
+    font-weight: 500;
+  }
+
+  .excel-price {
+    font-size: 12px;
+    color: var(--text2);
+  }
+
+  .arrow-icon {
+    text-align: center;
+    color: var(--text3);
+    font-size: 18px;
+  }
+
+  .tally-select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: white;
+  }
+
+  .confidence-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .conf-high { background: var(--green-bg); color: var(--green); }
+  .conf-medium { background: var(--amber-bg); color: var(--amber); }
+  .conf-low { background: var(--red-bg); color: var(--red); }
+  .conf-saved { background: var(--purple-bg); color: var(--purple); }
+
+  .search-filter {
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .search-filter input {
+    padding-left: 36px;
+  }
+
+  .search-filter::before {
+    content: "🔍";
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+  }
+
+  .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .summary-card {
+    padding: 14px;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .summary-card .num {
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .summary-card .label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+
+  .msg {
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin: 12px 0;
+    line-height: 1.6;
+  }
+
+  .msg-info { background: var(--accent-bg); color: #1e40af; border: 1px solid #bfdbfe; }
+  .msg-success { background: var(--green-bg); color: #166534; border: 1px solid #bbf7d0; }
+  .msg-error { background: var(--red-bg); color: #991b1b; border: 1px solid #fecaca; }
+  .msg-warn { background: var(--amber-bg); color: #92400e; border: 1px solid #fde68a; }
+
+  .loader {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .hidden { display: none !important; }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fafaf8;
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  .drop-zone p {
+    font-size: 14px;
+    color: var(--text2);
+    margin-top: 8px;
+  }
+
+  .drop-zone .big-icon {
+    font-size: 40px;
+    margin-bottom: 8px;
+  }
+
+  .xml-preview {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 16px;
+    border-radius: 8px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    max-height: 400px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.6;
+  }
+
+  .tally-url-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .tally-url-form input {
+    flex: 1;
+    max-width: 300px;
+  }
+
+  .mapping-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .mapping-controls .count {
+    font-size: 13px;
+    color: var(--text2);
+    margin-left: auto;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 768px) {
+    .container { padding: 16px; }
+    .field-row { grid-template-columns: 1fr; }
+    .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    .mapping-row { grid-template-columns: 1fr; }
+    .arrow-icon { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📦 Tally <span>Price List</span> Uploader</h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="tally-url-form">
+      <input type="text" id="tallyUrl" value="http://localhost:9000" style="font-size:12px;padding:6px 10px;max-width:200px;">
+      <button class="btn btn-outline btn-sm" onclick="checkHealth()">Connect</button>
+    </div>
+    <div id="statusBadge" class="status-badge disconnected">
+      <div class="dot"></div>
+      <span>Disconnected</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Steps -->
+  <div class="steps">
+    <div class="step-pill active" data-step="1" onclick="goToStep(1)">
+      <div class="step-num">1</div> Upload Excel
+    </div>
+    <div class="step-pill" data-step="2" onclick="goToStep(2)">
+      <div class="step-num">2</div> Map Columns
+    </div>
+    <div class="step-pill" data-step="3" onclick="goToStep(3)">
+      <div class="step-num">3</div> Map Items
+    </div>
+    <div class="step-pill" data-step="4" onclick="goToStep(4)">
+      <div class="step-num">4</div> Push to Tally
+    </div>
+  </div>
+
+  <!-- Step 1: Upload Excel -->
+  <div id="step1" class="card fade-in">
+    <div class="card-title">
+      <div class="icon" style="background:var(--accent-bg);color:var(--accent);">📄</div>
+      Upload your price list Excel file
+    </div>
+
+    <div class="field" style="margin-bottom:16px;">
+      <label>File path (on your computer where the app runs)</label>
+      <input type="text" id="filePath" placeholder="e.g. C:\Users\Shubham\Desktop\price_list.xlsx">
+    </div>
+
+    <div style="text-align:center;color:var(--text3);font-size:12px;margin:12px 0;">— or upload directly —</div>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="big-icon">📊</div>
+      <p>Click to select or drag & drop an Excel file</p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;" onchange="handleFileUpload(event)">
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="loadExcel()">Load Excel</button>
+    </div>
+
+    <div id="step1Msg"></div>
+  </div>
+
+  <!-- Step 2: Map Columns -->
+  <div id="step2" class="card hidden">
+    <div class="card-title">
+      <div class="icon" style="background:var(--amber-bg);color:var(--amber);">📋</div>
+      Map Excel columns &amp; set price level
+    </div>
+
+    <div id="headerInfo" class="msg msg-info hidden" style="margin-bottom:16px;"></div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Product name column</label>
+        <select id="nameColumn"></select>
+      </div>
+      <div class="field">
+        <label>Price / Rate column</label>
+        <select id="priceColumn"></select>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Unit column (optional)</label>
+        <select id="unitColumn"><option value="">-- None --</option></select>
+      </div>
+      <div class="field">
+        <label>Price level in Tally</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="priceLevelCustom" placeholder="Type price level name e.g. GMR 26-27" style="flex:1;">
+          <select id="priceLevel" style="width:auto;min-width:120px;font-size:12px;" onchange="if(this.value) document.getElementById('priceLevelCustom').value=this.value;">
+          </select>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">Type the exact name as created in Tally. Previously used levels appear in the dropdown.</div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>Applicable from date</label>
+        <input type="date" id="applicableFrom" value="">
+      </div>
+      <div class="field"></div>
+    </div>
+
+    <div class="card-title" style="margin-top:20px;">
+      <div class="icon" style="background:var(--bg);color:var(--text2);">👁</div>
+      Preview
+    </div>
+
+    <div class="table-wrap" id="previewTable"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="goToStep(1)">Back</button>
+      <button class="btn btn-primary" onclick="parseAndMap()">Next: Map Items</button>
+    </div>
+
+    <div id="step2Msg"></div>
+  </div>
+
+  <!-- Step 3: Map Items -->
+  <div id="step3" class="card hidden">
+    <div class="card-title">
+      <div class="icon" style="background:var(--purple-bg);color:var(--purple);">🔗</div>
+      Map Excel items to Tally stock items
+    </div>
+
+    <div class="msg msg-info" style="margin-bottom:16px;">
+      For each item in your Excel, select the matching Tally stock item. Previously saved mappings are applied automatically. Items with high similarity are pre-matched.
+    </div>
+
+    <div id="mappingSummary" class="summary-cards"></div>
+
+    <div class="mapping-controls">
+      <div class="search-filter" style="flex:1;max-width:300px;">
+        <input type="text" id="mappingSearch" placeholder="Filter items..." oninput="filterMappings()">
+      </div>
+      <select id="mappingFilter" onchange="filterMappings()" style="width:auto;padding:8px 12px;font-size:12px;">
+        <option value="all">All items</option>
+        <option value="mapped">Mapped only</option>
+        <option value="unmapped">Unmapped only</option>
+        <option value="saved">From saved map</option>
+      </select>
+      <div class="count" id="mappingCount"></div>
+    </div>
+
+    <div id="mappingList"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="goToStep(2)">Back</button>
+      <button class="btn btn-primary" onclick="goToStep(4)">Next: Review & Push</button>
+    </div>
+  </div>
+
+  <!-- Step 4: Push -->
+  <div id="step4" class="card hidden">
+    <div class="card-title">
+      <div class="icon" style="background:var(--green-bg);color:var(--green);">🚀</div>
+      Review & push to Tally
+    </div>
+
+    <div id="pushSummary"></div>
+
+    <div id="pushPreviewTable" class="table-wrap" style="margin-top:16px;"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="goToStep(3)">Back</button>
+      <button class="btn btn-outline" onclick="previewXml()">Preview XML</button>
+      <button class="btn btn-success" id="pushBtn" onclick="pushToTally()">
+        Push to Tally
+      </button>
+    </div>
+
+    <div id="xmlPreview" class="hidden" style="margin-top:16px;">
+      <div class="card-title" style="font-size:13px;">XML Preview</div>
+      <div class="xml-preview" id="xmlContent"></div>
+    </div>
+
+    <div id="pushResult" class="hidden" style="margin-top:16px;"></div>
+  </div>
+</div>
+
+<script>
+// ===== STATE =====
+const API = ''; // Same origin
+let state = {
+  currentStep: 1,
+  tallyUrl: 'http://localhost:9000',
+  connected: false,
+  filePath: '',
+  uploadedFile: null,
+  columns: [],
+  preview: [],
+  totalRows: 0,
+  excelItems: [],
+  tallyItems: [],
+  mappingSuggestions: [],
+  priceLevels: [],
+  selectedMappings: {} // excel_name -> tally_name
+};
+
+// ===== INIT =====
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('applicableFrom').value = new Date().toISOString().split('T')[0];
+  checkHealth();
+
+  // Drag and drop
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) {
+      document.getElementById('fileInput').files = e.dataTransfer.files;
+      handleFileUpload({ target: { files: e.dataTransfer.files } });
+    }
+  });
+});
+
+// ===== NAVIGATION =====
+function goToStep(n) {
+  state.currentStep = n;
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`step${i}`).classList.toggle('hidden', i !== n);
+    const pill = document.querySelector(`.step-pill[data-step="${i}"]`);
+    pill.classList.remove('active', 'done');
+    if (i < n) pill.classList.add('done');
+    else if (i === n) pill.classList.add('active');
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ===== API HELPERS =====
+async function api(path, opts = {}) {
+  const url = API + path;
+  try {
+    const res = await fetch(url, opts);
+    return await res.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+function showMsg(elId, type, text) {
+  document.getElementById(elId).innerHTML = `<div class="msg msg-${type}">${text}</div>`;
+}
+
+// ===== STEP 0: HEALTH =====
+async function checkHealth() {
+  state.tallyUrl = document.getElementById('tallyUrl').value;
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'status-badge disconnected';
+  badge.innerHTML = '<div class="dot"></div><span>Checking...</span>';
+
+  const data = await api('/api/health');
+  if (data.connected) {
+    state.connected = true;
+    badge.className = 'status-badge connected';
+    const companyText = data.companies?.length ? ` (${data.companies[0]})` : '';
+    badge.innerHTML = `<div class="dot"></div><span>Connected${companyText}</span>`;
+
+    // Also fetch price levels
+    const pl = await api('/api/price-levels');
+    state.priceLevels = pl.levels || [];
+    populatePriceLevels();
+  } else {
+    state.connected = false;
+    badge.className = 'status-badge disconnected';
+    badge.innerHTML = '<div class="dot"></div><span>Disconnected</span>';
+  }
+}
+
+function populatePriceLevels() {
+  const sel = document.getElementById('priceLevel');
+  sel.innerHTML = '<option value="">Recent ▾</option>';
+  state.priceLevels.forEach(l => {
+    sel.innerHTML += `<option value="${l}">${l}</option>`;
+  });
+}
+
+// ===== STEP 1: UPLOAD =====
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (file) {
+    state.uploadedFile = file;
+    document.getElementById('filePath').value = file.name;
+    showMsg('step1Msg', 'info', `File selected: ${file.name} (${(file.size/1024).toFixed(1)} KB)`);
+  }
+}
+
+async function loadExcel() {
+  const filePath = document.getElementById('filePath').value.trim();
+  let data;
+
+  if (state.uploadedFile) {
+    const formData = new FormData();
+    formData.append('file', state.uploadedFile);
+    data = await api('/api/upload-excel', { method: 'POST', body: formData });
+  } else if (filePath) {
+    const formData = new FormData();
+    formData.append('filepath', filePath);
+    data = await api('/api/upload-excel', { method: 'POST', body: formData });
+    state.filePath = filePath;
+  } else {
+    showMsg('step1Msg', 'error', 'Please provide a file path or upload a file.');
+    return;
+  }
+
+  if (data.error) {
+    showMsg('step1Msg', 'error', data.error);
+    return;
+  }
+
+  state.columns = data.columns;
+  state.preview = data.preview;
+  state.totalRows = data.total_rows;
+  state.excelInfo = data.info || {};
+  
+  // Store filepath from server if it saved a temp file
+  if (data.info && data.info.filepath) {
+    state.filePath = data.info.filepath;
+  } else if (data.info && data.info.temp_path) {
+    state.filePath = data.info.temp_path;
+  }
+
+  showMsg('step1Msg', 'success', `Loaded ${data.total_rows} rows with ${data.columns.length} columns.`);
+
+  // Show header detection info
+  const infoDiv = document.getElementById('headerInfo');
+  if (data.info) {
+    let infoHtml = `<strong>Auto-detected:</strong> Header at row ${data.info.header_row}`;
+    if (data.info.title_info && data.info.title_info.length > 0) {
+      infoHtml += ` | Title: ${data.info.title_info.map(t => `"${t}"`).join(', ')}`;
+    }
+    if (data.info.sheet_name) {
+      infoHtml += ` | Sheet: "${data.info.sheet_name}"`;
+    }
+    infoDiv.innerHTML = infoHtml;
+    infoDiv.classList.remove('hidden');
+  }
+
+  // Populate column selectors
+  const nameCol = document.getElementById('nameColumn');
+  const priceCol = document.getElementById('priceColumn');
+  const unitCol = document.getElementById('unitColumn');
+  nameCol.innerHTML = '';
+  priceCol.innerHTML = '';
+  unitCol.innerHTML = '<option value="">-- None --</option>';
+
+  data.columns.forEach(col => {
+    nameCol.innerHTML += `<option value="${col}">${col}</option>`;
+    priceCol.innerHTML += `<option value="${col}">${col}</option>`;
+    unitCol.innerHTML += `<option value="${col}">${col}</option>`;
+  });
+
+  // Auto-guess columns with better heuristics
+  data.columns.forEach((col, i) => {
+    const lower = col.toLowerCase();
+    if (lower.includes('name') || lower.includes('item') || lower.includes('product') || lower.includes('description') || lower.includes('particular')) {
+      nameCol.value = col;
+    }
+    if (lower.includes('rate') || lower.includes('price') || lower.includes('mrp') || lower === 'amount') {
+      priceCol.value = col;
+    }
+    if (lower.includes('unit') || lower === 'uom' || lower === 'units') {
+      unitCol.value = col;
+    }
+  });
+
+  // Build preview table
+  buildPreviewTable(data.columns, data.preview);
+
+  goToStep(2);
+}
+
+function buildPreviewTable(columns, rows) {
+  let html = '<table><thead><tr>';
+  columns.forEach(c => html += `<th>${c}</th>`);
+  html += '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>';
+    columns.forEach(c => html += `<td>${row[c] ?? ''}</td>`);
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  if (state.totalRows > rows.length) {
+    html += `<div style="text-align:center;padding:10px;font-size:12px;color:var(--text3);">Showing ${rows.length} of ${state.totalRows} rows</div>`;
+  }
+  document.getElementById('previewTable').innerHTML = html;
+}
+
+// ===== STEP 2: PARSE & MAP =====
+async function parseAndMap() {
+  if (!state.connected) {
+    showMsg('step2Msg', 'error', 'Please connect to Tally first.');
+    return;
+  }
+
+  const nameCol = document.getElementById('nameColumn').value;
+  const priceCol = document.getElementById('priceColumn').value;
+  const unitCol = document.getElementById('unitColumn').value;
+  const filePath = state.filePath;
+
+  showMsg('step2Msg', 'info', 'Parsing Excel and fetching Tally stock items...');
+
+  // Parse Excel to get items
+  const parseData = await api('/api/parse-excel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filepath: filePath,
+      name_column: nameCol,
+      price_column: priceCol,
+      unit_column: unitCol
+    })
+  });
+
+  if (parseData.error) {
+    showMsg('step2Msg', 'error', parseData.error);
+    return;
+  }
+
+  state.excelItems = parseData.items;
+  showMsg('step2Msg', 'info', `Parsed ${parseData.items.length} items. Fetching Tally stock items for mapping...`);
+
+  // Get mapping suggestions
+  const mapData = await api('/api/suggest-mappings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ excel_items: parseData.items })
+  });
+
+  if (mapData.error) {
+    showMsg('step2Msg', 'error', mapData.error);
+    return;
+  }
+
+  state.tallyItems = mapData.tally_items;
+  state.mappingSuggestions = mapData.suggestions;
+
+  // Pre-populate selected mappings from suggestions
+  state.selectedMappings = {};
+  mapData.suggestions.forEach(s => {
+    if (s.suggested_tally_name && (s.confidence >= 0.6 || s.source === 'saved_mapping')) {
+      state.selectedMappings[s.excel_name] = s.suggested_tally_name;
+    }
+  });
+
+  buildMappingUI();
+  goToStep(3);
+}
+
+function buildMappingUI() {
+  const suggestions = state.mappingSuggestions;
+  const tallyItems = state.tallyItems;
+
+  // Summary
+  const mapped = suggestions.filter(s => state.selectedMappings[s.excel_name]).length;
+  const saved = suggestions.filter(s => s.source === 'saved_mapping').length;
+  const unmapped = suggestions.length - mapped;
+
+  document.getElementById('mappingSummary').innerHTML = `
+    <div class="summary-card" style="background:var(--accent-bg);">
+      <div class="num" style="color:var(--accent);">${suggestions.length}</div>
+      <div class="label" style="color:var(--accent);">Total items</div>
+    </div>
+    <div class="summary-card" style="background:var(--green-bg);">
+      <div class="num" style="color:var(--green);">${mapped}</div>
+      <div class="label" style="color:var(--green);">Mapped</div>
+    </div>
+    <div class="summary-card" style="background:var(--amber-bg);">
+      <div class="num" style="color:var(--amber);">${unmapped}</div>
+      <div class="label" style="color:var(--amber);">Unmapped</div>
+    </div>
+    <div class="summary-card" style="background:var(--purple-bg);">
+      <div class="num" style="color:var(--purple);">${saved}</div>
+      <div class="label" style="color:var(--purple);">From saved map</div>
+    </div>
+  `;
+
+  renderMappingRows();
+}
+
+function renderMappingRows() {
+  const suggestions = state.mappingSuggestions;
+  const tallyItems = state.tallyItems;
+  const search = document.getElementById('mappingSearch').value.toLowerCase();
+  const filter = document.getElementById('mappingFilter').value;
+
+  let filtered = suggestions;
+
+  if (search) {
+    filtered = filtered.filter(s =>
+      s.excel_name.toLowerCase().includes(search) ||
+      (state.selectedMappings[s.excel_name] || '').toLowerCase().includes(search)
+    );
+  }
+
+  if (filter === 'mapped') {
+    filtered = filtered.filter(s => state.selectedMappings[s.excel_name]);
+  } else if (filter === 'unmapped') {
+    filtered = filtered.filter(s => !state.selectedMappings[s.excel_name]);
+  } else if (filter === 'saved') {
+    filtered = filtered.filter(s => s.source === 'saved_mapping');
+  }
+
+  document.getElementById('mappingCount').textContent = `${filtered.length} of ${suggestions.length} items`;
+
+  // Build tally options HTML once
+  const tallyOptions = tallyItems
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(t => `<option value="${t.name}">${t.name}${t.group ? ' [' + t.group + ']' : ''}</option>`)
+    .join('');
+
+  let html = '';
+  filtered.forEach((s, idx) => {
+    const mapped = state.selectedMappings[s.excel_name];
+    const rowClass = mapped ? 'matched' : 'unmatched';
+
+    let confClass = 'conf-low';
+    let confText = 'No match';
+    if (s.source === 'saved_mapping') {
+      confClass = 'conf-saved';
+      confText = 'Saved';
+    } else if (s.confidence >= 0.8) {
+      confClass = 'conf-high';
+      confText = `${Math.round(s.confidence * 100)}%`;
+    } else if (s.confidence >= 0.5) {
+      confClass = 'conf-medium';
+      confText = `${Math.round(s.confidence * 100)}%`;
+    } else if (s.confidence > 0.3) {
+      confClass = 'conf-low';
+      confText = `${Math.round(s.confidence * 100)}%`;
+    }
+
+    html += `
+      <div class="mapping-row ${rowClass}" id="maprow-${idx}">
+        <div>
+          <div class="excel-item">${s.excel_name}</div>
+          <div class="excel-price">₹${s.price.toLocaleString('en-IN')}</div>
+        </div>
+        <div class="arrow-icon">→</div>
+        <div>
+          <select class="tally-select" onchange="updateMapping('${s.excel_name.replace(/'/g, "\\'")}', this.value, ${idx})">
+            <option value="">-- Select Tally Item --</option>
+            ${tallyOptions}
+          </select>
+        </div>
+        <div style="text-align:center;">
+          <div class="confidence-badge ${confClass}">${confText}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  document.getElementById('mappingList').innerHTML = html;
+
+  // Set selected values
+  filtered.forEach((s, idx) => {
+    const sel = document.querySelector(`#maprow-${idx} .tally-select`);
+    if (sel && state.selectedMappings[s.excel_name]) {
+      sel.value = state.selectedMappings[s.excel_name];
+    }
+  });
+}
+
+function updateMapping(excelName, tallyName, idx) {
+  if (tallyName) {
+    state.selectedMappings[excelName] = tallyName;
+    document.getElementById(`maprow-${idx}`).className = 'mapping-row matched';
+  } else {
+    delete state.selectedMappings[excelName];
+    document.getElementById(`maprow-${idx}`).className = 'mapping-row unmatched';
+  }
+  // Update summary
+  buildMappingUI();
+}
+
+function filterMappings() {
+  renderMappingRows();
+}
+
+// ===== STEP 4: PUSH =====
+function getPriceLevel() {
+  const sel = document.getElementById('priceLevel').value;
+  const custom = document.getElementById('priceLevelCustom').value.trim();
+  return custom || sel;
+}
+
+function getMappedItems() {
+  const items = [];
+  state.mappingSuggestions.forEach(s => {
+    const tallyName = state.selectedMappings[s.excel_name];
+    if (tallyName) {
+      const tallyItem = state.tallyItems.find(t => t.name === tallyName);
+      // Find original excel item for unit info
+      const excelItem = state.excelItems.find(e => e.excel_name === s.excel_name);
+      items.push({
+        excel_name: s.excel_name,
+        tally_name: tallyName,
+        price: s.price,
+        unit: tallyItem?.unit || excelItem?.unit || 'Nos'
+      });
+    }
+  });
+  return items;
+}
+
+// When entering step 4
+const origGoToStep = goToStep;
+goToStep = function(n) {
+  origGoToStep(n);
+  if (n === 4) buildPushReview();
+};
+
+function buildPushReview() {
+  const items = getMappedItems();
+  const priceLevel = getPriceLevel();
+  const date = document.getElementById('applicableFrom').value;
+
+  document.getElementById('pushSummary').innerHTML = `
+    <div class="summary-cards">
+      <div class="summary-card" style="background:var(--green-bg);">
+        <div class="num" style="color:var(--green);">${items.length}</div>
+        <div class="label" style="color:var(--green);">Items to push</div>
+      </div>
+      <div class="summary-card" style="background:var(--purple-bg);">
+        <div class="num" style="color:var(--purple);font-size:16px;">${priceLevel || 'Not set'}</div>
+        <div class="label" style="color:var(--purple);">Price level</div>
+      </div>
+      <div class="summary-card" style="background:var(--accent-bg);">
+        <div class="num" style="color:var(--accent);font-size:16px;">${date || 'Not set'}</div>
+        <div class="label" style="color:var(--accent);">Applicable from</div>
+      </div>
+      <div class="summary-card" style="background:var(--amber-bg);">
+        <div class="num" style="color:var(--amber);">${state.mappingSuggestions.length - items.length}</div>
+        <div class="label" style="color:var(--amber);">Skipped (unmapped)</div>
+      </div>
+    </div>
+  `;
+
+  // Items table
+  let html = '<table><thead><tr><th>Excel Name</th><th>Tally Name</th><th>Price</th><th>Unit</th></tr></thead><tbody>';
+  items.forEach(item => {
+    html += `<tr>
+      <td>${item.excel_name}</td>
+      <td style="font-weight:500;color:var(--accent);">${item.tally_name}</td>
+      <td style="font-weight:600;">₹${item.price.toLocaleString('en-IN')}</td>
+      <td>${item.unit}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('pushPreviewTable').innerHTML = html;
+
+  // Validate
+  if (!priceLevel) {
+    showMsg('pushResult', 'warn', 'Please set a price level in Step 2 before pushing.');
+    document.getElementById('pushResult').classList.remove('hidden');
+  }
+}
+
+async function previewXml() {
+  const items = getMappedItems();
+  const data = await api('/api/preview-xml', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items,
+      price_level: getPriceLevel(),
+      applicable_from: document.getElementById('applicableFrom').value
+    })
+  });
+
+  document.getElementById('xmlContent').textContent = data.xml || 'Error generating XML';
+  document.getElementById('xmlPreview').classList.remove('hidden');
+}
+
+async function pushToTally() {
+  const items = getMappedItems();
+  const priceLevel = getPriceLevel();
+  const date = document.getElementById('applicableFrom').value;
+
+  if (!items.length) {
+    showMsg('pushResult', 'error', 'No mapped items to push.');
+    document.getElementById('pushResult').classList.remove('hidden');
+    return;
+  }
+
+  if (!priceLevel) {
+    showMsg('pushResult', 'error', 'Please set a price level.');
+    document.getElementById('pushResult').classList.remove('hidden');
+    return;
+  }
+
+  if (!date) {
+    showMsg('pushResult', 'error', 'Please set the applicable from date.');
+    document.getElementById('pushResult').classList.remove('hidden');
+    return;
+  }
+
+  const btn = document.getElementById('pushBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span> Pushing...';
+
+  const data = await api('/api/push-prices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, price_level: priceLevel, applicable_from: date })
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = 'Push to Tally';
+
+  document.getElementById('pushResult').classList.remove('hidden');
+
+  if (data.success) {
+    let resultHtml = `
+      <div class="msg msg-success">
+        <strong>Successfully pushed ${data.items_count} items to Tally!</strong><br>
+        Created: ${data.created} | Altered: ${data.altered} | Errors: ${data.errors}
+      </div>
+    `;
+    if (data.line_error) {
+      resultHtml += `<div class="msg msg-warn" style="margin-top:8px;">Line error: ${data.line_error}</div>`;
+    }
+    document.getElementById('pushResult').innerHTML = resultHtml;
+  } else {
+    document.getElementById('pushResult').innerHTML = `
+      <div class="msg msg-error">
+        <strong>Push failed:</strong> ${data.error || 'Unknown error'}
+      </div>
+      ${data.raw_response ? `<div class="xml-preview" style="margin-top:8px;max-height:200px;">${data.raw_response}</div>` : ''}
+    `;
+  }
+}
+</script>
+</body>
+</html>
