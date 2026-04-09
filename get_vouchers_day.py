@@ -61,12 +61,11 @@ def fetch_vouchers_day(date_str, voucher_type=""):
     type_label = voucher_type if voucher_type else "All"
     print(f"Fetching {type_label} vouchers for {dt.strftime('%d-%b-%Y')}...")
 
-    # Use Tally's built-in Day Book report with XML fetch list
+    # Day Book report with $SysName:XML (single $) and FETCHLIST for compact output
     xml_request = f'''<ENVELOPE>
 <HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
-<EXPLODEFLAG>Yes</EXPLODEFLAG>
-<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+<SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
 <SVFROMDATE>{tally_date}</SVFROMDATE>
 <SVTODATE>{tally_date}</SVTODATE>
@@ -76,7 +75,6 @@ def fetch_vouchers_day(date_str, voucher_type=""):
 <FETCH>DATE</FETCH>
 <FETCH>VOUCHERTYPENAME</FETCH>
 <FETCH>PARTYLEDGERNAME</FETCH>
-<FETCH>AMOUNT</FETCH>
 <FETCH>NARRATION</FETCH>
 <FETCH>ALLLEDGERENTRIES.LIST</FETCH>
 </FETCHLIST>
@@ -87,13 +85,13 @@ def fetch_vouchers_day(date_str, voucher_type=""):
         r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
                           headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=300)
     except requests.exceptions.ReadTimeout:
-        print("Request timed out even at 300s.")
+        print("Request timed out.")
         input("\nPress Enter to exit...")
         return [], dt
 
     # Save raw response for debugging
     with open('raw_voucher_response.txt', 'w', encoding='utf-8') as f:
-        f.write(r.text[:20000])
+        f.write(r.text[:50000])
     print(f"Response length: {len(r.text)} chars (saved preview to raw_voucher_response.txt)")
 
     clean_text = clean_xml(r.text)
@@ -102,7 +100,7 @@ def fetch_vouchers_day(date_str, voucher_type=""):
         root = ET.fromstring(clean_text)
     except ET.ParseError as e:
         print(f"XML parse error: {e}")
-        print("First 500 chars of response:")
+        print("First 500 chars:")
         print(clean_text[:500])
         input("\nPress Enter to exit...")
         return [], dt
@@ -115,21 +113,19 @@ def fetch_vouchers_day(date_str, voucher_type=""):
         party = v.findtext('PARTYLEDGERNAME', '')
         narration = v.findtext('NARRATION', '')
 
-        # Try to get amount from different possible locations
-        amount = v.findtext('AMOUNT', '')
+        # Get amount from ledger entries
+        amount = ''
+        for entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
+            amt = entry.findtext('AMOUNT', '')
+            if amt:
+                amount = amt
+                break
         if not amount:
-            # Check ledger entries for amount
-            for entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
+            for entry in v.findall('.//LEDGERENTRIES.LIST'):
                 amt = entry.findtext('AMOUNT', '')
                 if amt:
                     amount = amt
                     break
-            if not amount:
-                for entry in v.findall('.//LEDGERENTRIES.LIST'):
-                    amt = entry.findtext('AMOUNT', '')
-                    if amt:
-                        amount = amt
-                        break
 
         if date or party or vch_number:
             vouchers.append({
