@@ -1,9 +1,9 @@
 """Fetch vouchers from Tally for a single day.
 
 Usage:
-    python get_vouchers_day.py --date 2026-04-01 --type Sales
+    python get_vouchers_day.py --date 2026-04-08 --type Sales
     python get_vouchers_day.py --date 2026-04-15 --type Purchase
-    python get_vouchers_day.py --date 2026-04-01              (all types)
+    python get_vouchers_day.py --date 2026-04-08              (all types)
 
 Common voucher types in Tally:
     Sales, Purchase, Receipt, Payment, Journal, Contra,
@@ -43,16 +43,20 @@ def get_company_name():
 
 
 def clean_xml(text):
-    """Remove invalid XML character references (e.g. &#4;)."""
-    return re.sub(
+    """Remove invalid XML character references AND raw control characters."""
+    # Remove invalid XML character references like &#4;
+    text = re.sub(
         r'&#(\d+);',
         lambda m: m.group() if int(m.group(1)) in (9, 10, 13) or int(m.group(1)) > 31 else '',
         text
     )
+    # Also remove raw control characters (bytes 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+    return text
 
 
 def fetch_vouchers_day(date_str, voucher_type=""):
-    """Fetch vouchers from Tally for a single day using Day Book report."""
+    """Fetch vouchers from Tally for a single day."""
     company = get_company_name()
 
     dt = datetime.strptime(date_str, "%Y-%m-%d")
@@ -61,26 +65,29 @@ def fetch_vouchers_day(date_str, voucher_type=""):
     type_label = voucher_type if voucher_type else "All"
     print(f"Fetching {type_label} vouchers for {dt.strftime('%d-%b-%Y')}...")
 
-    # Day Book report with $SysName:XML (single $) and FETCHLIST for compact output
+    # Use TDL Collection with FETCH (not NATIVEMETHOD) to get compact output
+    # and use a custom report definition to extract only needed fields
     xml_request = f'''<ENVELOPE>
-<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
+<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>MyVouchers</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
 <SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
 <SVFROMDATE>{tally_date}</SVFROMDATE>
 <SVTODATE>{tally_date}</SVTODATE>
 </STATICVARIABLES>
-<FETCHLIST>
-<FETCH>VOUCHERNUMBER</FETCH>
-<FETCH>DATE</FETCH>
-<FETCH>VOUCHERTYPENAME</FETCH>
-<FETCH>PARTYLEDGERNAME</FETCH>
-<FETCH>NARRATION</FETCH>
-<FETCH>ALLLEDGERENTRIES.LIST</FETCH>
-</FETCHLIST>
-</DESC></BODY></ENVELOPE>'''
+<TDL><TDLMESSAGE>
+<COLLECTION NAME="MyVouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
+<TYPE>Voucher</TYPE>
+<FETCH>VoucherNumber</FETCH>
+<FETCH>Date</FETCH>
+<FETCH>VoucherTypeName</FETCH>
+<FETCH>PartyLedgerName</FETCH>
+<FETCH>Amount</FETCH>
+<FETCH>Narration</FETCH>
+</COLLECTION>
+</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'''
 
-    print("Sending Day Book request...")
+    print("Sending request...")
     try:
         r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
                           headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=300)
@@ -102,40 +109,58 @@ def fetch_vouchers_day(date_str, voucher_type=""):
         print(f"XML parse error: {e}")
         print("First 500 chars:")
         print(clean_text[:500])
-        input("\nPress Enter to exit...")
-        return [], dt
+        print("\n...trying to extract data with regex fallback...")
+        vouchers = regex_parse_vouchers(clean_text, voucher_type)
+        return vouchers, dt
 
     vouchers = []
-    for v in root.iter('VOUCHER'):
-        vch_number = v.findtext('VOUCHERNUMBER', '')
-        date = v.findtext('DATE', '')
-        vch_type = v.findtext('VOUCHERTYPENAME', '')
-        party = v.findtext('PARTYLEDGERNAME', '')
-        narration = v.findtext('NARRATION', '')
+    # Try COLLECTION first (TDL collection response)
+    coll = root.find('.//COLLECTION')
+    if coll is not None:
+        for v in coll.findall('VOUCHER'):
+            vch_number = v.get('NAME', '') or v.findtext('VOUCHERNUMBER', '')
+            date = v.findtext('DATE', '')
+            vch_type = v.findtext('VOUCHERTYPENAME', '')
+            party = v.findtext('PARTYLEDGERNAME', '')
+            amount = v.findtext('AMOUNT', '')
+            narration = v.findtext('NARRATION', '')
 
-        # Get amount from ledger entries
-        amount = ''
-        for entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
-            amt = entry.findtext('AMOUNT', '')
-            if amt:
-                amount = amt
-                break
-        if not amount:
-            for entry in v.findall('.//LEDGERENTRIES.LIST'):
-                amt = entry.findtext('AMOUNT', '')
-                if amt:
-                    amount = amt
-                    break
+            if date or party or vch_number:
+                vouchers.append({
+                    'VoucherNumber': (vch_number or '').strip(),
+                    'Date': (date or '').strip(),
+                    'VoucherType': (vch_type or '').strip(),
+                    'PartyName': (party or '').strip(),
+                    'Amount': (amount or '').strip(),
+                    'Narration': (narration or '').strip(),
+                })
 
-        if date or party or vch_number:
-            vouchers.append({
-                'VoucherNumber': (vch_number or '').strip(),
-                'Date': (date or '').strip(),
-                'VoucherType': (vch_type or '').strip(),
-                'PartyName': (party or '').strip(),
-                'Amount': (amount or '').strip(),
-                'Narration': (narration or '').strip(),
-            })
+    # If COLLECTION was empty, try TALLYMESSAGE (Day Book style)
+    if not vouchers:
+        for v in root.iter('VOUCHER'):
+            vch_number = v.findtext('VOUCHERNUMBER', '')
+            date = v.findtext('DATE', '')
+            vch_type = v.findtext('VOUCHERTYPENAME', '')
+            party = v.findtext('PARTYLEDGERNAME', '')
+            amount = v.findtext('AMOUNT', '')
+            narration = v.findtext('NARRATION', '')
+
+            if not amount:
+                for entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
+                    amt = entry.findtext('AMOUNT', '')
+                    if amt:
+                        amount = amt
+                        break
+
+            if date or party or vch_number:
+                vouchers.append({
+                    'VoucherNumber': (vch_number or '').strip(),
+                    'Date': (date or '').strip(),
+                    'VoucherType': (vch_type or '').strip(),
+                    'PartyName': (party or '').strip(),
+                    'Amount': (amount or '').strip(),
+                    'Narration': (narration or '').strip(),
+                })
 
     # Filter by type if specified
     if voucher_type and vouchers:
@@ -145,9 +170,47 @@ def fetch_vouchers_day(date_str, voucher_type=""):
     return vouchers, dt
 
 
+def regex_parse_vouchers(text, voucher_type=""):
+    """Fallback: extract voucher data using regex when XML parsing fails."""
+    print("Using regex fallback parser...")
+    vouchers = []
+
+    # Find all VOUCHER blocks
+    pattern = r'<VOUCHER[^>]*>(.*?)</VOUCHER>'
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    for block in matches:
+        def extract(tag):
+            m = re.search(rf'<{tag}>(.*?)</{tag}>', block, re.DOTALL)
+            return m.group(1).strip() if m else ''
+
+        vch_number = extract('VOUCHERNUMBER')
+        date = extract('DATE')
+        vch_type = extract('VOUCHERTYPENAME')
+        party = extract('PARTYLEDGERNAME')
+        amount = extract('AMOUNT')
+        narration = extract('NARRATION')
+
+        if date or party or vch_number:
+            vouchers.append({
+                'VoucherNumber': vch_number,
+                'Date': date,
+                'VoucherType': vch_type,
+                'PartyName': party,
+                'Amount': amount,
+                'Narration': narration,
+            })
+
+    if voucher_type and vouchers:
+        vouchers = [v for v in vouchers if v['VoucherType'].lower() == voucher_type.lower()]
+
+    print(f"Regex fallback found {len(vouchers)} vouchers")
+    return vouchers
+
+
 def main():
     parser = argparse.ArgumentParser(description="Fetch vouchers from Tally for a single day")
-    parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD format (e.g. 2026-04-01)")
+    parser.add_argument("--date", type=str, required=True, help="Date in YYYY-MM-DD format (e.g. 2026-04-08)")
     parser.add_argument("--type", type=str, default="",
                         help="Voucher type: Sales, Purchase, Receipt, Payment, Journal, etc. Leave empty for all.")
     args = parser.parse_args()
@@ -155,7 +218,7 @@ def main():
     try:
         datetime.strptime(args.date, "%Y-%m-%d")
     except ValueError:
-        print("Error: Date must be in YYYY-MM-DD format (e.g. 2026-04-01)")
+        print("Error: Date must be in YYYY-MM-DD format (e.g. 2026-04-08)")
         sys.exit(1)
 
     vouchers, dt = fetch_vouchers_day(args.date, args.type)
