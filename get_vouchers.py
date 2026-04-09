@@ -52,7 +52,7 @@ def clean_xml(text):
 
 
 def fetch_vouchers(month, year, voucher_type=""):
-    """Fetch vouchers from Tally for the given month/year and optional type."""
+    """Fetch vouchers from Tally for the given month/year using Day Book report."""
     company = get_company_name()
 
     _, last_day = calendar.monthrange(year, month)
@@ -63,60 +63,86 @@ def fetch_vouchers(month, year, voucher_type=""):
     print(f"Fetching {type_label} vouchers for {calendar.month_name[month]} {year}...")
     print(f"  Date range: {from_date} to {to_date}")
 
-    # Build filter if voucher type specified
-    filter_block = ""
-    if voucher_type:
-        filter_block = f"""<FILTERS>VchTypeFilter</FILTERS>
-</COLLECTION>
-<SYSTEM TYPE="Formulae" NAME="VchTypeFilter">$VoucherTypeName = "{voucher_type}"</SYSTEM>"""
-    else:
-        filter_block = "</COLLECTION>"
-
     xml_request = f'''<ENVELOPE>
-<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>VoucherList</ID></HEADER>
+<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>Day Book</ID></HEADER>
 <BODY><DESC><STATICVARIABLES>
-<SVEXPORTFORMAT>$SysName:XML</SVEXPORTFORMAT>
+<EXPLODEFLAG>Yes</EXPLODEFLAG>
+<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
 <SVCURRENTCOMPANY>{company}</SVCURRENTCOMPANY>
 <SVFROMDATE>{from_date}</SVFROMDATE>
 <SVTODATE>{to_date}</SVTODATE>
 </STATICVARIABLES>
-<TDL><TDLMESSAGE>
-<COLLECTION NAME="VoucherList" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="Yes">
-<TYPE>Voucher</TYPE>
-<NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
-<NATIVEMETHOD>Date</NATIVEMETHOD>
-<NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
-<NATIVEMETHOD>PartyLedgerName</NATIVEMETHOD>
-<NATIVEMETHOD>Amount</NATIVEMETHOD>
-<NATIVEMETHOD>Narration</NATIVEMETHOD>
-{filter_block}
-</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>'''
+<FETCHLIST>
+<FETCH>VOUCHERNUMBER</FETCH>
+<FETCH>DATE</FETCH>
+<FETCH>VOUCHERTYPENAME</FETCH>
+<FETCH>PARTYLEDGERNAME</FETCH>
+<FETCH>AMOUNT</FETCH>
+<FETCH>NARRATION</FETCH>
+<FETCH>ALLLEDGERENTRIES.LIST</FETCH>
+</FETCHLIST>
+</DESC></BODY></ENVELOPE>'''
 
-    r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
-                      headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=300)
+    print("Sending Day Book request (this may take a while for full month)...")
+    try:
+        r = requests.post(TALLY_URL, data=xml_request.encode('utf-8'),
+                          headers={'Content-Type': 'text/xml; charset=utf-8'}, timeout=600)
+    except requests.exceptions.ReadTimeout:
+        print("Request timed out at 600s.")
+        input("\nPress Enter to exit...")
+        return []
+
+    # Save raw response for debugging
+    with open('raw_voucher_response.txt', 'w', encoding='utf-8') as f:
+        f.write(r.text[:20000])
+    print(f"Response length: {len(r.text)} chars (saved preview to raw_voucher_response.txt)")
+
     clean_text = clean_xml(r.text)
-    root = ET.fromstring(clean_text)
+
+    try:
+        root = ET.fromstring(clean_text)
+    except ET.ParseError as e:
+        print(f"XML parse error: {e}")
+        print("First 500 chars of response:")
+        print(clean_text[:500])
+        input("\nPress Enter to exit...")
+        return []
 
     vouchers = []
-    coll = root.find('.//COLLECTION')
-    if coll is not None:
-        for v in coll.findall('VOUCHER'):
-            vch_number = v.get('REMOTEID', '') or v.findtext('VOUCHERNUMBER', '')
-            date = v.findtext('DATE', '')
-            vch_type = v.findtext('VOUCHERTYPENAME', '')
-            party = v.findtext('PARTYLEDGERNAME', '')
-            amount = v.findtext('AMOUNT', '')
-            narration = v.findtext('NARRATION', '')
+    for v in root.iter('VOUCHER'):
+        vch_number = v.findtext('VOUCHERNUMBER', '')
+        date = v.findtext('DATE', '')
+        vch_type = v.findtext('VOUCHERTYPENAME', '')
+        party = v.findtext('PARTYLEDGERNAME', '')
+        narration = v.findtext('NARRATION', '')
 
-            if vch_number or date or party:
-                vouchers.append({
-                    'VoucherNumber': vch_number.strip(),
-                    'Date': date.strip(),
-                    'VoucherType': vch_type.strip(),
-                    'PartyName': party.strip(),
-                    'Amount': amount.strip(),
-                    'Narration': narration.strip(),
-                })
+        amount = v.findtext('AMOUNT', '')
+        if not amount:
+            for entry in v.findall('.//ALLLEDGERENTRIES.LIST'):
+                amt = entry.findtext('AMOUNT', '')
+                if amt:
+                    amount = amt
+                    break
+            if not amount:
+                for entry in v.findall('.//LEDGERENTRIES.LIST'):
+                    amt = entry.findtext('AMOUNT', '')
+                    if amt:
+                        amount = amt
+                        break
+
+        if date or party or vch_number:
+            vouchers.append({
+                'VoucherNumber': (vch_number or '').strip(),
+                'Date': (date or '').strip(),
+                'VoucherType': (vch_type or '').strip(),
+                'PartyName': (party or '').strip(),
+                'Amount': (amount or '').strip(),
+                'Narration': (narration or '').strip(),
+            })
+
+    # Filter by type if specified
+    if voucher_type and vouchers:
+        vouchers = [v for v in vouchers if v['VoucherType'].lower() == voucher_type.lower()]
 
     print(f"Found {len(vouchers)} vouchers")
     return vouchers
